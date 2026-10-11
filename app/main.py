@@ -261,11 +261,18 @@ async def license_issue_callback(req: LicenseCallbackRequest, request: Request):
     return {"status":"stored","license_id":row["license_id"],"created_at":row["created_at"]}
 
 @app.get("/api/license/{license_id}/token")
-def get_issued_license_token(license_id: str):
-    token=db.issued_license_token(license_id)
+def get_issued_license_token(license_id: str, request: Request):
+    if not settings.api_key:
+        raise HTTPException(503, "API authentication is not configured.")
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or not compare_digest(
+        auth[7:], settings.api_key
+    ):
+        raise HTTPException(401, "Unauthorized")
+    token = db.issued_license_token(license_id)
     if not token:
         raise HTTPException(404, "Issued license not found")
-    return {"license_id":license_id,"token":token}
+    return {"license_id": license_id, "token": token}
 
 
 @app.post("/api/license/verify-token")
