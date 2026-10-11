@@ -55,7 +55,7 @@ jobs:
       - name: Install license dependencies
         run: python -m pip install -e .
 
-      - name: Resolve request
+      - name: Resolve and validate request
         id: request
         env:
           EVENT_EMAIL: ${{ github.event.client_payload.email }}
@@ -76,48 +76,84 @@ jobs:
           def pick(event, manual, default=""):
               return event if event else (manual if manual else default)
           values = {
-              "email": pick(os.environ["EVENT_EMAIL"], os.environ["INPUT_EMAIL"]),
-              "plan": pick(os.environ["EVENT_PLAN"], os.environ["INPUT_PLAN"], "Professional"),
-              "days": pick(os.environ["EVENT_DAYS"], os.environ["INPUT_DAYS"], "0"),
-              "max_activations": pick(os.environ["EVENT_MAX_ACTIVATIONS"], os.environ["INPUT_MAX_ACTIVATIONS"], "3"),
-              "order": pick(os.environ["EVENT_ORDER"], os.environ["INPUT_ORDER"]),
-              "gumroad": pick(os.environ["EVENT_GUMROAD_LICENSE"], os.environ["INPUT_GUMROAD_LICENSE"]),
+              "email": pick(os.environ["EVENT_EMAIL"], os.environ["INPUT_EMAIL"]).strip(),
+              "plan": pick(os.environ["EVENT_PLAN"], os.environ["INPUT_PLAN"], "Professional").strip(),
+              "days": pick(os.environ["EVENT_DAYS"], os.environ["INPUT_DAYS"], "0").strip(),
+              "max_activations": pick(os.environ["EVENT_MAX_ACTIVATIONS"], os.environ["INPUT_MAX_ACTIVATIONS"], "3").strip(),
+              "order": pick(os.environ["EVENT_ORDER"], os.environ["INPUT_ORDER"]).strip(),
+              "gumroad": pick(os.environ["EVENT_GUMROAD_LICENSE"], os.environ["INPUT_GUMROAD_LICENSE"]).strip(),
           }
-          if not values["email"] or "@" not in values["email"]:
+          if not values["email"] or "@" not in values["email"] or any(c in values["email"] for c in "\r\n"):
               raise SystemExit("A valid customer email is required")
-          for key in ("days", "max_activations"):
-              int(values[key])
-          for key, value in values.items():
-              print(f"{key}={value}")
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+          if values["plan"] not in {"Professional", "Enterprise", "MSSP"}:
+              raise SystemExit("Unsupported license plan")
+          for key in ("email", "plan", "days", "max_activations", "order", "gumroad"):
+              if any(c in values[key] for c in "\r\n"):
+                  raise SystemExit(f"Invalid newline in {key}")
+          try:
+              days = int(values["days"])
+              activations = int(values["max_activations"])
+          except ValueError:
+              raise SystemExit("days and max_activations must be integers")
+          if not 0 <= days <= 36500:
+              raise SystemExit("days must be between 0 and 36500")
+          if not 1 <= activations <= 1000:
+              raise SystemExit("max_activations must be between 1 and 1000")
+          for secret_value in (values["email"], values["order"], values["gumroad"]):
+              if secret_value:
+                  print(f"::add-mask::{secret_value}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              for key, value in values.items():
                   out.write(f"{key}={value}\n")
           PY
 
       - name: Generate signed license
         env:
           OZHEX_LICENSE_PRIVATE_KEY: ${{ secrets.OZHEX_LICENSE_PRIVATE_KEY }}
+          REQUEST_EMAIL: ${{ steps.request.outputs.email }}
+          REQUEST_PLAN: ${{ steps.request.outputs.plan }}
+          REQUEST_DAYS: ${{ steps.request.outputs.days }}
+          REQUEST_MAX_ACTIVATIONS: ${{ steps.request.outputs.max_activations }}
+          REQUEST_ORDER: ${{ steps.request.outputs.order }}
+          REQUEST_GUMROAD_LICENSE: ${{ steps.request.outputs.gumroad }}
         run: |
           test -n "$OZHEX_LICENSE_PRIVATE_KEY"
-          python scripts/issue_license.py             --email "${{ steps.request.outputs.email }}"             --plan "${{ steps.request.outputs.plan }}"             --days "${{ steps.request.outputs.days }}"             --max-activations "${{ steps.request.outputs.max_activations }}"             --order-number "${{ steps.request.outputs.order }}"             --gumroad-license "${{ steps.request.outputs.gumroad }}"             --output ozhex-license.lic
+          python scripts/issue_license.py \
+            --email "$REQUEST_EMAIL" \
+            --plan "$REQUEST_PLAN" \
+            --days "$REQUEST_DAYS" \
+            --max-activations "$REQUEST_MAX_ACTIVATIONS" \
+            --order-number "$REQUEST_ORDER" \
+            --gumroad-license "$REQUEST_GUMROAD_LICENSE" \
+            --output ozhex-license.lic
 
       - name: Secure license handoff
         env:
           LICENSE_CALLBACK_URL: ${{ secrets.OZHEX_LICENSE_CALLBACK_URL }}
           LICENSE_CALLBACK_SECRET: ${{ secrets.OZHEX_LICENSE_CALLBACK_SECRET }}
+          REQUEST_EMAIL: ${{ steps.request.outputs.email }}
+          REQUEST_ORDER: ${{ steps.request.outputs.order }}
         run: |
           test -n "$LICENSE_CALLBACK_URL"
           test -n "$LICENSE_CALLBACK_SECRET"
           python - <<'PY'
-          import json, os, urllib.request
-          token = open("ozhex-license.lic", encoding="utf-8").read().strip()
-          metadata = json.load(open("ozhex-license.lic.json", encoding="utf-8"))
+          import json, os
+          from urllib.parse import urlsplit
+          from urllib.request import Request, urlopen
+          url = urlsplit(os.environ["LICENSE_CALLBACK_URL"])
+          if url.scheme != "https" or not url.hostname:
+              raise SystemExit("LICENSE_CALLBACK_URL must be an HTTPS URL")
+          with open("ozhex-license.lic", encoding="utf-8") as handle:
+              token = handle.read().strip()
+          with open("ozhex-license.lic.json", encoding="utf-8") as handle:
+              metadata = json.load(handle)
           payload = json.dumps({
               "token": token,
               "license_id": metadata["license_id"],
-              "email": "${{ steps.request.outputs.email }}",
-              "order_number": "${{ steps.request.outputs.order }}",
+              "email": os.environ["REQUEST_EMAIL"],
+              "order_number": os.environ["REQUEST_ORDER"],
           }).encode()
-          req = urllib.request.Request(
+          req = Request(
               os.environ["LICENSE_CALLBACK_URL"],
               data=payload,
               headers={
@@ -126,8 +162,8 @@ jobs:
               },
               method="POST",
           )
-          with urllib.request.urlopen(req, timeout=20) as response:
-              if response.status >= 300:
+          with urlopen(req, timeout=20) as response:
+              if not 200 <= response.status < 300:
                   raise SystemExit(f"License callback failed: HTTP {response.status}")
-          print("Signed license securely handed off to the configured OZHEX callback.")
+          print("Signed license handed off to the configured HTTPS callback.")
           PY
