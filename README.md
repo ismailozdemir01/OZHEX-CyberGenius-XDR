@@ -175,9 +175,9 @@ For production use, deploy behind TLS/reverse proxy, use dedicated secret manage
 
 ## Release status
 
-**Version 1.2.0 — OZHEX branding release.**
+**Version 1.4.0 — license issuance and revocation workflow release.**
 
-The software baseline includes XDR investigation, detection, correlation, Microsoft Graph/Defender integration, response auditing, speech-to-text, automatic language detection and Microsoft Translator integration. The CI gate must remain green before release tagging.
+The software baseline includes XDR investigation, detection, correlation, Microsoft Graph/Defender integration, response auditing, speech-to-text, automatic language detection and Microsoft Translator integration. The CI gate must remain green before release tagging. The GitHub Actions workflows use pinned Ubuntu 24.04 runners and current major versions of the checkout and Python setup actions.
 
 Live Microsoft tenant validation remains environment-dependent and requires valid Graph, Defender and Translator credentials.
 
@@ -263,7 +263,7 @@ Bu iki endpoint müşteri uygulamasının doğrudan kullanabilmesi için Bearer 
 
 GitHub Actions → **OZHEX License Revocation → Run workflow** üzerinden `LIC-...` lisans kimliği revoke edilir. Workflow imzalı `licenses/revocations.ozhx` manifestini günceller. Uygulama manifest imzasını doğrular ve revoke edilmiş lisansı aktivasyonda reddeder.
 
-> GitHub Actions workflow'larının kimler tarafından çalıştırılabildiği repository/organization Actions policy ile ayrıca sınırlandırılmalıdır. Özellikle public repository'de lisans üretim workflow'u için yalnızca güvenilir aktörlere izin verilmesi önerilir.
+> **Render Free persistence limitation:** the default `./data/xdr.db` SQLite file lives on the service's local filesystem. On hosts without a persistent disk, a restart or redeploy may remove locally stored license and application records. A successful license callback confirms the current database write only; it does not guarantee durable storage. Do not treat this setup as production-durable until a persistent storage backend or a tested backup/restore process is configured.\n\n> GitHub Actions workflow'larının kimler tarafından çalıştırılabildiği repository/organization Actions policy ile ayrıca sınırlandırılmalıdır. Özellikle public repository'de lisans üretim workflow'u için yalnızca güvenilir aktörlere izin verilmesi önerilir.
 
 ## License
 
