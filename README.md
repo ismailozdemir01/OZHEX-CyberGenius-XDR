@@ -263,7 +263,9 @@ Bu iki endpoint müşteri uygulamasının doğrudan kullanabilmesi için Bearer 
 
 GitHub Actions → **OZHEX License Revocation → Run workflow** üzerinden `LIC-...` lisans kimliği revoke edilir. Workflow imzalı `licenses/revocations.ozhx` manifestini günceller. Uygulama manifest imzasını doğrular ve revoke edilmiş lisansı aktivasyonda reddeder.
 
-> **Render Free persistence limitation:** the default `./data/xdr.db` SQLite file lives on the service's local filesystem. On hosts without a persistent disk, a restart or redeploy may remove locally stored license and application records. A successful license callback confirms the current database write only; it does not guarantee durable storage. Do not treat this setup as production-durable until a persistent storage backend or a tested backup/restore process is configured.\n\n> GitHub Actions workflow'larının kimler tarafından çalıştırılabildiği repository/organization Actions policy ile ayrıca sınırlandırılmalıdır. Özellikle public repository'de lisans üretim workflow'u için yalnızca güvenilir aktörlere izin verilmesi önerilir.
+> **Render Free persistence limitation:** the default `./data/xdr.db` SQLite file lives on the service's local filesystem. On hosts without a persistent disk, a restart or redeploy may remove locally stored license and application records. A successful license callback confirms the current database write only; it does not guarantee durable storage. Do not treat this setup as production-durable until a persistent storage backend or a tested backup/restore process is configured. 
+
+> GitHub Actions workflow'larının kimler tarafından çalıştırılabildiği repository/organization Actions policy ile ayrıca sınırlandırılmalıdır. Özellikle public repository'de lisans üretim workflow'u için yalnızca güvenilir aktörlere izin verilmesi önerilir.
 
 ## License
 
