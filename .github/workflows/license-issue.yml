@@ -147,9 +147,10 @@ jobs:
               token = handle.read().strip()
           with open("ozhex-license.lic.json", encoding="utf-8") as handle:
               metadata = json.load(handle)
+          license_id = metadata["license_id"]
           payload = json.dumps({
               "token": token,
-              "license_id": metadata["license_id"],
+              "license_id": license_id,
               "email": os.environ["REQUEST_EMAIL"],
               "order_number": os.environ["REQUEST_ORDER"],
           }).encode()
@@ -165,5 +166,11 @@ jobs:
           with urlopen(req, timeout=20) as response:
               if not 200 <= response.status < 300:
                   raise SystemExit(f"License callback failed: HTTP {response.status}")
-          print("Signed license handed off to the configured HTTPS callback.")
+              try:
+                  result = json.loads(response.read().decode("utf-8"))
+              except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                  raise SystemExit("License callback returned invalid JSON") from exc
+          if result.get("status") != "stored" or result.get("license_id") != license_id:
+              raise SystemExit("License callback did not confirm storage of the expected license")
+          print("Signed license generated; callback confirmed the expected license was stored.")
           PY
